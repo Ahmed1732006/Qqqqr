@@ -492,30 +492,35 @@ function saveStudentLocal(){
 function loadStudentLocal(){
   try{ DB.student = JSON.parse(localStorage.getItem('sa_demo_student')||'null'); }catch(e){ DB.student=null; }
 }
+/* هوية الطالب/الجهاز بتتخزن في 3 أماكن (localStorage + Cookie + IndexedDB) عشان أي مسح جزئي ما يعملش هوية جديدة */
+function cookieGet(k){ const m=document.cookie.match(new RegExp('(?:^|; )'+k+'=([^;]*)')); return m?decodeURIComponent(m[1]):null; }
+function cookieSet(k,v){ try{ document.cookie=k+'='+encodeURIComponent(v)+'; max-age=63072000; path=/; SameSite=Lax'; }catch(e){} }
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function idbOpen(){ return new Promise((res,rej)=>{ try{ const r=indexedDB.open('sa_identity',1); r.onupgradeneeded=()=>r.result.createObjectStore('kv'); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }catch(e){ rej(e); } }); }
+async function idbGet(k){ try{ const d=await idbOpen(); return await new Promise(res=>{ const q=d.transaction('kv').objectStore('kv').get(k); q.onsuccess=()=>res(q.result||null); q.onerror=()=>res(null); }); }catch(e){ return null; } }
+function idbPut(k,v){ idbOpen().then(d=>{ d.transaction('kv','readwrite').objectStore('kv').put(v,k); }).catch(()=>{}); }
+function persistId(k, v){ lsSet(k,v); cookieSet(k,v); idbPut(k,v); }
+const identityReady = (async()=>{
+  for(const k of ['sa_demo_student_client_id','sa_device_id']){
+    if(!lsGet(k) && !cookieGet(k)){
+      const v = await idbGet(k);
+      if(v) persistId(k, v);
+    }
+  }
+})();
 function getStudentClientId(){
-  let id=localStorage.getItem('sa_demo_student_client_id');
-  if(!id){ id='STU-'+crypto.randomUUID(); localStorage.setItem('sa_demo_student_client_id',id); }
+  const K='sa_demo_student_client_id';
+  let id = lsGet(K) || cookieGet(K);
+  if(!id) id = 'STU-'+crypto.randomUUID();
+  persistId(K,id);
   return id;
 }
-async function refreshDB(silent){
-  if(dbLoading) return;
-  dbLoading=true;
-  try{
-    const data=await api('dashboard');
-    if(data.ok){ DB.lectures=data.lectures||[]; DB.attendance=data.attendance||[]; DB.rejects=data.rejections||[]; }
-  }catch(e){ if(!silent) toast('⚠️ تعذر تحديث البيانات: '+e.message,4200); }
-  finally{ dbLoading=false; renderAdmin(); renderStudent(); }
-}
-
-window.addEventListener('online', refreshDB);
-/* ---------- بصمة الجهاز ---------- */
 function getDeviceId(){
-  let id = localStorage.getItem('sa_device_id');
-  if(!id){
-    id = 'DEV-' + rnd(6) + '-' + rnd(6);
-    localStorage.setItem('sa_device_id', id);
-  }
-  document.cookie = 'sa_device_id=' + id + '; max-age=31536000; path=/';
+  const K='sa_device_id';
+  let id = lsGet(K) || cookieGet(K);
+  if(!id) id = 'DEV-' + rnd(6) + '-' + rnd(6);
+  persistId(K,id);
   return id;
 }
 function hardwareFingerprint(){
@@ -534,6 +539,70 @@ function hardwareFingerprint(){
   }catch(e){
     return 'FP-'+sha256([navigator.platform||'',screen.width,screen.height,new Date().getTimezoneOffset()].join('|')).slice(0,24);
   }
+}
+/* ===== بصمة العتاد: مستقلة عن المتصفح (بتفضل ثابتة مع تغيير المتصفح / الوضع الخفي / مسح البيانات) ===== */
+function osFromUA(ua, touch){
+  ua = String(ua||'');
+  if(/Android/i.test(ua)) return 'android';
+  if(/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+  if(/Macintosh|Mac OS X/i.test(ua)) return (touch>1) ? 'ios' : 'mac';
+  if(/Windows/i.test(ua)) return 'windows';
+  if(/Linux|X11|CrOS/i.test(ua)) return 'linux';
+  return 'other';
+}
+function normGPU(raw){
+  const s = String(raw||'').toLowerCase();
+  if(!s) return null;
+  if(/swiftshader|llvmpipe|software|microsoft basic|google inc\.$/.test(s)) return null;
+  const fam = (s.match(/adreno|mali|powervr|immortalis|xclipse|apple|intel|nvidia|amd|radeon|geforce|videocore/)||[])[0];
+  if(!fam) return null;
+  const nums = (s.replace(/opengl es\s*[\d.]+/g,'').replace(/vs_\d_\d|ps_\d_\d/g,'').match(/\d+/g)||[]).join('-');
+  return fam + (nums ? ':'+nums : '');
+}
+function modelFromUA(ua){
+  const m = String(ua||'').match(/Android [\d.]+; ([^;)]+)/);
+  if(!m) return null;
+  const v = m[1].trim();
+  if(!v || v==='K' || /^Mobile$/i.test(v) || v.length<2) return null;
+  return v.toLowerCase();
+}
+function hwBucket(n, step){ step = step||24; return Math.round(n/step)*step; }
+let _hwCache = null;
+async function collectHW(){
+  if(_hwCache) return _hwCache;
+  try{
+    const ua = navigator.userAgent||'';
+    const touch = navigator.maxTouchPoints||0;
+    const dpr = window.devicePixelRatio||1;
+    const w = (screen.width||0)*dpr, h = (screen.height||0)*dpr;      // مقاس الشاشة الفعلي بالبكسل (ثابت حتى مع الزوم)
+    let gpu = null;
+    try{
+      const c = document.createElement('canvas');
+      const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+      if(gl){
+        const ext = gl.getExtension('WEBGL_debug_renderer_info');
+        gpu = normGPU(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+      }
+    }catch(e){}
+    let model = modelFromUA(ua);
+    try{
+      if(navigator.userAgentData && navigator.userAgentData.getHighEntropyValues){
+        const v = await navigator.userAgentData.getHighEntropyValues(['model']);
+        if(v && v.model && v.model.length>1) model = v.model.toLowerCase();
+      }
+    }catch(e){}
+    let tz = null; try{ tz = Intl.DateTimeFormat().resolvedOptions().timeZone||null; }catch(e){}
+    _hwCache = {
+      v:1,
+      os: osFromUA(ua, touch),
+      scr: Math.round(Math.max(w,h)) + 'x' + Math.round(Math.min(w,h)),
+      tz,
+      cores: navigator.hardwareConcurrency||null,
+      mem: navigator.deviceMemory||null,
+      gpu, model
+    };
+  }catch(e){ _hwCache = null; }
+  return _hwCache;
 }
 function deviceLabel(){
   const ua = navigator.userAgent;
@@ -795,6 +864,7 @@ async function studentLogin(){
   if(name.length<3){err.textContent='اكتب اسمك بالكامل (3 حروف على الأقل)';err.classList.add('show');return;}
   if(!/[\u0600-\u06FFa-zA-Z]/.test(name)){err.textContent='اكتب اسم صحيح';err.classList.add('show');return;}
   try{
+    await identityReady;
     const data=await api('register_student',{name,clientId:getStudentClientId(),deviceId:getDeviceId(),fingerprint:hardwareFingerprint(),deviceLabel:deviceLabel(),userAgent:navigator.userAgent});
     if(!data.ok) throw new Error(data.error||'تعذر تسجيل الطالب');
     DB.student={name:data.student.name, id:data.student.id, clientId:getStudentClientId(), deviceId:getDeviceId(), fp:hardwareFingerprint(), deviceLabel:deviceLabel()};
@@ -845,6 +915,7 @@ async function saveName(){
   const name=$('#editNameInput').value.trim().replace(/\s+/g,' '),err=$('#editErr'); err.classList.remove('show');
   if(name.length<3){err.textContent='اكتب اسم صحيح (3 حروف على الأقل)';err.classList.add('show');return;}
   try{
+    await identityReady;
     const data=await api('register_student',{name,clientId:getStudentClientId(),deviceId:getDeviceId(),fingerprint:hardwareFingerprint(),deviceLabel:deviceLabel(),userAgent:navigator.userAgent});
     if(!data.ok) throw new Error(data.error||'تعذر حفظ الاسم');
     DB.student.name=name; DB.student.id=data.student.id; saveStudentLocal(); closeModal('modalSettings'); renderStudent(); toast('✅ تم تعديل الاسم');
@@ -1068,8 +1139,10 @@ async function handleScan(text,fromFile){
   scan.locked=true;
   showResult('info','⏳ تم قراءة الكود — جاري التحقق...');
   try{
+    await identityReady;
+    const hw=await collectHW();
     const data=await api('scan',{
-      token:text,name:student.name,clientId:getStudentClientId(),deviceId:getDeviceId(),
+      token:text,name:student.name,clientId:getStudentClientId(),deviceId:getDeviceId(),hw,
       fingerprint:hardwareFingerprint(),deviceLabel:deviceLabel(),userAgent:navigator.userAgent,
       scanId:'SCAN-'+crypto.randomUUID()
     });
