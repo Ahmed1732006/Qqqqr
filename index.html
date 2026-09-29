@@ -1,0 +1,196 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>نظام الحضور بالـ QR</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<style>
+:root{--bg:#f4f5f9;--card:#fff;--tx:#1b1f2a;--mu:#6b7280;--pr:#4f46e5;--ok:#16a34a;--er:#dc2626;--bd:#e5e7eb;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1117;--card:#1a1d27;--tx:#eef0f6;--mu:#9aa1b2;--bd:#2c3140}}
+:root[data-theme="dark"]{--bg:#0f1117;--card:#1a1d27;--tx:#eef0f6;--mu:#9aa1b2;--bd:#2c3140}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:Tahoma,"Segoe UI",Arial,sans-serif;line-height:1.6}
+.w{max-width:760px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:16px;margin-bottom:14px}
+h1,h2,h3{margin:0 0 10px}h1{font-size:22px}h2{font-size:18px}
+button,select,input{font:inherit;color:var(--tx)}
+input,select{width:100%;padding:11px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);margin-bottom:10px}
+button{border:0;border-radius:10px;padding:11px 16px;background:var(--pr);color:#fff;cursor:pointer;width:100%;margin-bottom:8px}
+button.s{background:var(--bd);color:var(--tx)}button.r{background:var(--er)}button.g{background:var(--ok)}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.top button{width:auto;margin:0}
+.msg{padding:12px;border-radius:10px;margin:10px 0;font-weight:bold}
+.msg.ok{background:#16a34a22;color:var(--ok)}.msg.er{background:#dc262622;color:var(--er)}
+.box{position:relative;width:100%;aspect-ratio:1;max-width:320px;margin:0 auto 10px;border:3px dashed var(--pr);border-radius:16px;overflow:hidden;display:flex;align-items:center;justify-content:center;color:var(--mu);text-align:center}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#qr{display:flex;justify-content:center;background:#fff;padding:30px;border-radius:12px;width:max-content;max-width:100%;margin:8px auto}
+.bar{height:10px;background:var(--bd);border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--pr);width:0}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:8px;border-bottom:1px solid var(--bd);text-align:right;white-space:nowrap}
+.mu{color:var(--mu);font-size:13px}.hide{display:none!important}
+.stat{display:flex;gap:10px}.stat div{flex:1;text-align:center;background:var(--bg);border-radius:12px;padding:10px}.stat b{font-size:24px;display:block}
+textarea{width:100%;height:80px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:10px}
+.md{position:fixed;inset:0;background:#0009;display:flex;align-items:center;justify-content:center;padding:16px}
+</style></head><body><div class="w">
+
+<div id="login" class="card">
+<h1>📋 نظام الحضور بالـ QR</h1><p class="mu">نسخة تجريبية أولية — البيانات محفوظة في المتصفح فقط.</p>
+<h2>دخول كأدمن</h2>
+<input placeholder="البريد الإلكتروني" type="email"><input placeholder="كلمة السر" type="password">
+<button onclick="goAdmin()">تسجيل الدخول كأدمن</button>
+<hr style="border:0;border-top:1px solid var(--bd);margin:14px 0">
+<h2>دخول كطالب</h2>
+<input id="ln" placeholder="اسمك بالكامل">
+<button class="g" onclick="goStudent()">تسجيل الدخول كطالب</button>
+</div>
+
+<div id="student" class="hide">
+<div class="top"><h2 id="sn"></h2><div class="row" style="flex:none"><button class="s" onclick="editName()">⚙️</button><button class="s" onclick="out()">خروج</button></div></div>
+<div class="card"><div class="stat"><div><b id="s1">0</b>حضرت</div><div><b id="s2">0</b>إجمالي المحاضرات</div><div><b id="s3">0%</b>النسبة</div></div></div>
+<div class="card">
+<div class="box" id="box"><video id="v" playsinline muted class="hide"></video><span id="ph">📷 اضغط "قراءة" لفتح الكاميرا<br>وامسح QR المحاضرة</span></div>
+<button onclick="startScan()" id="sb">قراءة</button>
+<button class="s" onclick="$('#ph2').click()">📸 قراءة بتصوير الكود (لو الكاميرا المباشرة مش شغالة)</button><input id="ph2" type="file" accept="image/*" capture="environment" class="hide" onchange="fromPhoto(this)">
+<div id="res"></div>
+<details><summary class="mu">🧪 أدوات التجربة</summary><br>
+<input id="paste" placeholder="الصق نص الـQR هنا لو مفيش كاميرا"><button class="s" onclick="tryText($('#paste').value)">تجربة النص</button>
+<button class="s" onclick="newDev()">محاكاة جهاز آخر</button>
+<button class="s" onclick="autoTest(0)">مسح الكود الحالي (تجربة)</button><button class="s" onclick="autoTest(1)">مسح كود قديم (لازم يترفض)</button></details>
+</div></div>
+
+<div id="admin" class="hide">
+<div class="top"><h2>👨‍🏫 لوحة الأدمن</h2><button class="s" onclick="out()">خروج</button></div>
+<div class="card" id="setup"><h3>محاضرة جديدة</h3>
+<input id="ln2" type="number" min="1" placeholder="رقم المحاضرة">
+<label class="mu">تغيّر الـQR كل</label>
+<select id="iv" onchange="cu('iv','ivc')"><option value="8">8 ثواني</option><option value="10" selected>10 ثواني (افتراضي)</option><option value="15">15 ثانية</option><option value="c">مدة مخصصة</option></select>
+<input id="ivc" class="hide" type="number" min="3" placeholder="عدد الثواني">
+<label class="mu">مدة تشغيل المحاضرة</label>
+<select id="du" onchange="cu('du','duc')"><option value="5" selected>5 دقايق (افتراضي)</option><option value="8">8 دقايق</option><option value="10">10 دقايق</option><option value="c">مدة مخصصة</option></select>
+<input id="duc" class="hide" type="number" min="1" placeholder="عدد الدقايق">
+<button onclick="startLec()">▶️ تشغيل</button></div>
+<div class="card hide" id="live"><h3 id="lt"></h3><div class="bar"><i id="pb"></i></div>
+<div class="mu" id="lc" style="margin-top:6px"></div><div id="qr"></div><div class="mu" id="qt" style="word-break:break-all;font-size:11px"></div>
+<button class="r" onclick="stopLec()">⏹ إنهاء المحاضرة</button></div>
+<div class="card"><h3>📊 الإحصاءات</h3>
+<select id="fl" onchange="rend()"></select>
+<div class="tw"><table><thead><tr><th>الطالب</th><th>المحاضرة</th><th>وقت التسجيل</th></tr></thead><tbody id="rt"></tbody></table></div>
+<div class="row" style="margin-top:10px"><button class="g" onclick="dl(1)">⬇️ تحميل أسماء حاضري المحاضرة</button><button class="g" onclick="dl(2)">⬇️ تحميل الحضور لكل المحاضرات</button></div>
+<textarea id="csv" class="hide" readonly></textarea></div>
+<div class="card"><h3>🚫 الطلبات المرفوضة</h3><div class="tw"><table><thead><tr><th>المحاضرة</th><th>الوقت</th><th>السبب</th></tr></thead><tbody id="xt"></tbody></table></div></div>
+</div>
+</div>
+<div id="md" class="md hide"><div class="card" style="width:100%;max-width:340px"><h3>تعديل الاسم</h3><input id="nn"><div class="row"><button onclick="saveName()">حفظ</button><button class="s" onclick="$('#md').classList.add('hide')">إلغاء</button></div></div></div>
+
+<script>
+const $=s=>document.querySelector(s),mem={};
+const G=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return k in mem?mem[k]:d}};
+const S=(k,v)=>{mem[k]=v;try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+const db=()=>G('att',{lectures:[],records:[],rejects:[]}),sv=d=>S('att',d);
+const sh=()=>(Math.random().toString(36)+'000000').slice(2,8);
+const rnd=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
+const tm=t=>new Date(t).toLocaleTimeString('ar-EG');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let view='login',stream=null,scanning=false,shown=null,qrObj=null;
+function show(v){view=v;['login','student','admin'].forEach(x=>$('#'+x).classList.toggle('hide',x!=v))}
+function cu(a,b){$('#'+b).classList.toggle('hide',$('#'+a).value!='c')}
+function out(){stopCam();show('login')}
+function goAdmin(){show('admin');rend()}
+function goStudent(){const n=$('#ln').value.trim();if(!n){$('#ln').focus();return}S('name',n);show('student');sInfo()}
+function sInfo(){$('#sn').textContent='👋 '+G('name','');const d=db(),n=G('name','');const a=d.records.filter(r=>r.n==n).length,t=d.lectures.length;$('#s1').textContent=a;$('#s2').textContent=t;$('#s3').textContent=(t?Math.round(a/t*100):0)+'%'}
+function editName(){$('#nn').value=G('name','');$('#md').classList.remove('hide')}
+function saveName(){const n=$('#nn').value.trim();if(n){S('name',n);sInfo()}$('#md').classList.add('hide')}
+
+// بصمة الجهاز (تقريبية): نفس الجهاز بأي متصفح/خفي يطلع نفس القيمة غالباً
+function h53(s){let a=0xdeadbeef,b=0x41c6ce57;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);a=Math.imul(a^c,2654435761);b=Math.imul(b^c,1597334677)}a=Math.imul(a^a>>>16,2246822507)^Math.imul(b^b>>>13,3266489909);b=Math.imul(b^b>>>16,2246822507)^Math.imul(a^a>>>13,3266489909);return(4294967296*(2097151&b)+(a>>>0)).toString(36)}
+function fp(){let g='';try{const c=document.createElement('canvas').getContext('webgl'),e=c.getExtension('WEBGL_debug_renderer_info');g=e?c.getParameter(e.UNMASKED_RENDERER_WEBGL):''}catch(e){}
+const n=navigator;return h53([screen.width*screen.height,screen.colorDepth,n.hardwareConcurrency,n.deviceMemory,n.platform,Intl.DateTimeFormat().resolvedOptions().timeZone,g,G('salt','')].join('|'))}
+function autoTest(o){const d=db(),l=d.lectures.find(x=>x.active),t=l&&l.tokens[l.tokens.length-1-o];if(!t){msg('مفيش محاضرة شغالة أو كود قديم لسه','er');return}tryText(mk(l,t))}
+function newDev(){S('salt',rnd());msg('تم تغيير بصمة الجهاز (للتجربة فقط)','ok')}
+
+function msg(t,c){$('#res').innerHTML='<div class="msg '+c+'">'+t+'</div>'}
+async function startScan(){
+ if(scanning)return;
+ if(!navigator.mediaDevices||!window.isSecureContext){msg('المتصفح بيمنع الكاميرا المباشرة لأن الصفحة مش على رابط https (حتى لو الإذن موجود). استخدم زر "قراءة بتصوير الكود" تحت.','er');return}
+ try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})}catch(e){msg('تعذّر فتح الكاميرا ('+e.name+'). استخدم زر "قراءة بتصوير الكود" تحت.','er');return}
+ const v=$('#v');v.srcObject=stream;await v.play();v.classList.remove('hide');$('#ph').classList.add('hide');scanning=true;$('#sb').textContent='جاري القراءة...';$('#res').innerHTML='';
+ const cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+ (function loop(){if(!scanning)return;
+  if(v.videoWidth){const k=Math.min(1,480/v.videoWidth);cv.width=v.videoWidth*k;cv.height=v.videoHeight*k;cx.drawImage(v,0,0,cv.width,cv.height);
+   const c=jsQR(cx.getImageData(0,0,cv.width,cv.height).data,cv.width,cv.height,{inversionAttempts:'dontInvert'});
+   if(c&&c.data&&tryText(c.data)){stopCam();return}}
+  requestAnimationFrame(loop)})();
+}
+async function decodeImg(im){
+ try{if('BarcodeDetector' in window){const r=await new BarcodeDetector({formats:['qr_code']}).detect(im);if(r.length)return r.map(x=>x.rawValue)}}catch(e){}
+ for(const m of[1600,1000,640]){const k=Math.min(1,m/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(im,0,0,c.width,c.height);
+  const q=jsQR(x.getImageData(0,0,c.width,c.height).data,c.width,c.height,{inversionAttempts:'attemptBoth'});if(q&&q.data)return[q.data]}
+ return[]}
+function fromPhoto(el){const f=el.files[0];el.value='';if(!f)return;msg('⏳ جاري قراءة الصورة...','ok');const im=new Image();im.onload=async()=>{const r=await decodeImg(im);URL.revokeObjectURL(im.src);
+ if(r.some(x=>tryText(x)))return;
+ msg(r.length?'اتقرأ QR لكنه مش تابع للموقع.':'مقدرتش ألاقي QR في الصورة. قرّب الكاميرا لحد ما الكود يملا معظم الصورة، ثبّت إيدك، وقلّل انعكاس الشاشة.','er')};
+ im.onerror=()=>msg('الصورة مش مفهومة، جرّب تاني.','er');im.src=URL.createObjectURL(f)}
+function stopCam(){scanning=false;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}$('#v').classList.add('hide');$('#ph').classList.remove('hide');$('#sb').textContent='قراءة'}
+
+// الكود موقّع وفيه وقته جواه، فأي جهاز يتحقق منه بدون سيرفر (مؤقتاً لحد قاعدة البيانات)
+const SEC='att-demo-secret-v1';
+function mk(l,t){const s=Math.floor(t.s/1000).toString(36),iv=l.interval.toString(36),le=Math.floor(l.endsAt/1000).toString(36),nm=encodeURIComponent(l.num).replace(/\|/g,'');
+ return['ATT1',l.id,nm,s,iv,le,h53([SEC,l.id,nm,s,iv,le].join('|'))].join('|')}
+// يرجع true لو الـQR بتاع الموقع (أياً كانت النتيجة)، false لو QR غريب فيتجاهل
+function tryText(t){
+ const a=String(t).trim().split('|');if(a[0]!=='ATT1'||a.length!==7)return false;
+ const[,id,nm,s36,iv36,le36,sig]=a;
+ if(sig!==h53([SEC,id,nm,s36,iv36,le36].join('|'))){msg('❌ كود غير صالح','er');return true}
+ const s=parseInt(s36,36),iv=parseInt(iv36,36),le=parseInt(le36,36),e=Math.min(s+iv,le),now=Date.now();
+ // هامش: 3 ثواني فرق ساعات بين الأجهزة، وثانيتين بعد تغيّر الكود. أقدم من كده مرفوض
+ if(now<(s-3)*1000||now>(e+2)*1000||now>(le+2)*1000){msg('❌ الكود منتهي. امسح الكود الحالي من شاشة الدكتور.','er');return true}
+ const d=db(),n=G('name',''),f=fp();let l=d.lectures.find(x=>x.id==id);
+ if(!l){l={id,num:decodeURIComponent(nm),interval:iv,startedAt:s*1000,endsAt:le*1000,active:false,tokens:[]};d.lectures.push(l)}
+ if(d.records.some(r=>r.l==l.id&&r.n==n)){sv(d);msg('ℹ️ أنت مسجّل حضور بالفعل في محاضرة '+esc(l.num),'ok');return true}
+ const prev=d.records.find(r=>r.l==l.id&&r.f==f);
+ if(prev){d.rejects.push({l:l.id,n,prev:prev.n,t:now,f});sv(d);msg('🚫 الجهاز ده سجّل قبل كده في المحاضرة دي، وتم إبلاغ الدكتور.','er');return true}
+ d.records.push({l:l.id,n,f,t:now});sv(d);sInfo();msg('✅ تم تسجيل حضورك في محاضرة '+esc(l.num)+' الساعة '+tm(now),'ok');return true}
+
+// الأدمن
+function startLec(){
+ const num=$('#ln2').value.trim();if(!num){$('#ln2').focus();return}
+ const iv=$('#iv').value=='c'?+$('#ivc').value:+$('#iv').value,du=$('#du').value=='c'?+$('#duc').value:+$('#du').value;
+ if(!(iv>=3)||!(du>=1)){alert('راجع المدد');return}
+ const d=db();d.lectures.forEach(x=>x.active=false);const now=Date.now();
+ d.lectures.push({id:sh(),num,interval:iv,startedAt:now,endsAt:now+du*60000,active:true,tokens:[]});sv(d);shown=null;rend()}
+function stopLec(){const d=db();d.lectures.forEach(x=>x.active=false);sv(d);rend()}
+function rend(){
+ const d=db(),l=d.lectures.find(x=>x.active);
+ $('#setup').classList.toggle('hide',!!l);$('#live').classList.toggle('hide',!l);
+ if(l){$('#lt').textContent='🔴 محاضرة رقم '+l.num+' شغّالة'}
+ const cur=$('#fl').value,o='<option value="">كل المحاضرات</option>'+d.lectures.map(x=>'<option value="'+x.id+'">محاضرة '+esc(x.num)+' — '+new Date(x.startedAt).toLocaleDateString('ar-EG')+'</option>').join('');
+ if($('#fl').dataset.k!=o){$('#fl').innerHTML=o;$('#fl').dataset.k=o;$('#fl').value=cur}
+ const f=$('#fl').value,ln=id=>{const x=d.lectures.find(y=>y.id==id);return x?x.num:'-'};
+ $('#rt').innerHTML=d.records.filter(r=>!f||r.l==f).slice().reverse().map(r=>'<tr><td>'+esc(r.n)+'</td><td>'+esc(ln(r.l))+'</td><td>'+tm(r.t)+'</td></tr>').join('')||'<tr><td colspan=3 class="mu">لسه مفيش تسجيلات</td></tr>';
+ $('#xt').innerHTML=d.rejects.slice().reverse().map(r=>'<tr><td>'+esc(ln(r.l))+'</td><td>'+tm(r.t)+'</td><td>'+esc(r.prev)+' سجّل قبل كده، و'+esc(r.n)+' حاول يسجّل بنفس الجهاز</td></tr>').join('')||'<tr><td colspan=3 class="mu">مفيش طلبات مرفوضة</td></tr>';
+ if(l)$('#lc').textContent='عدد المسجلين: '+d.records.filter(r=>r.l==l.id).length+' — ينتهي '+tm(l.endsAt)
+}
+function drawQR(l,t){
+ const p=mk(l,t);$('#qt').textContent=p;
+ if(!qrObj){$('#qr').innerHTML='';qrObj=new QRCode($('#qr'),{text:p,width:260,height:260,correctLevel:QRCode.CorrectLevel.L})}else{qrObj.clear();qrObj.makeCode(p)}}
+// مولّد الكود: لازم تبقى شاشة الأدمن مفتوحة
+setInterval(()=>{
+ const d=db(),l=d.lectures.find(x=>x.active);if(!l){shown=null;qrObj=null;return}
+ const now=Date.now();
+ if(now>=l.endsAt){l.active=false;sv(d);rend();return}
+ let t=l.tokens[l.tokens.length-1];
+ if(!t||now>=t.e){t={tok:sh(),s:now,e:Math.min(now+l.interval*1000,l.endsAt)};l.tokens.push(t);l.tokens=l.tokens.slice(-4);sv(d)}
+ if(shown!==t.tok){shown=t.tok;drawQR(l,t)}
+ $('#pb').style.width=Math.max(0,(t.e-now)/(t.e-t.s)*100)+'%';
+},200);
+setInterval(()=>{if(view==='admin')rend();if(view==='student')sInfo()},1500);
+
+// تحميل (CSV يفتح في إكسل)
+function dl(k){
+ const d=db(),f=$('#fl').value;let rows;
+ if(k==1){const L=d.lectures.find(x=>x.id==f)||d.lectures[d.lectures.length-1];if(!L){alert('مفيش محاضرات');return}
+  rows=[['الاسم','رقم المحاضرة','وقت التسجيل']].concat(d.records.filter(r=>r.l==L.id).map(r=>[r.n,L.num,tm(r.t)]))}
+ else{const names=[...new Set(d.records.map(r=>r.n))];rows=[['الاسم'].concat(d.lectures.map(x=>'محاضرة '+x.num),['إجمالي الحضور'])]
+  names.forEach(n=>{let c=0;const a=d.lectures.map(x=>d.records.some(r=>r.l==x.id&&r.n==n)?(c++,'✓'):'');rows.push([n].concat(a,[c+' / '+d.lectures.length]))})}
+ const txt=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+ const ta=$('#csv');ta.value=txt;ta.classList.remove('hide');
+ try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+txt],{type:'text/csv'}));a.download=(k==1?'attendees':'all-lectures')+'.csv';a.click()}catch(e){}
+}
+</script></body></html>
