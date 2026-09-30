@@ -516,6 +516,18 @@ function getStudentClientId(){
   persistId(K,id);
   return id;
 }
+async function refreshDB(silent){
+  if(dbLoading) return;
+  dbLoading=true;
+  try{
+    const data=await api('dashboard');
+    if(data.ok){ DB.lectures=data.lectures||[]; DB.attendance=data.attendance||[]; DB.rejects=data.rejections||[]; }
+  }catch(e){ if(!silent) toast('⚠️ تعذر تحديث البيانات: '+e.message,4200); }
+  finally{ dbLoading=false; renderAdmin(); renderStudent(); }
+}
+
+window.addEventListener('online', () => refreshDB());
+/* ---------- بصمة الجهاز ---------- */
 function getDeviceId(){
   const K='sa_device_id';
   let id = lsGet(K) || cookieGet(K);
